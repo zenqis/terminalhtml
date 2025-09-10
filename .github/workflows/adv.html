@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradingView Widget</title>
+    <style>
+        /* Gaya dasar untuk mengisi seluruh halaman */
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+        }
+
+        /* Container untuk widget TradingView */
+        .tradingview-container {
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Styling untuk widget itu sendiri */
+        .tradingview-widget-container {
+            height: 100%;
+            width: 100%;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="tradingview-container">
+        <!-- TradingView Widget BEGIN -->
+        <div class="tradingview-widget-container">
+            <div class="tradingview-widget-container__widget" style="height:calc(100% - 20px);width:100%"></div>
+            <div class="tradingview-widget-copyright"><a href="https://www.tradingview.com/symbols/OANDA-XAUUSD/?exchange=OANDA" rel="noopener nofollow" target="_blank"><span class="blue-text"></span></a></div>
+            <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+            {
+            "allow_symbol_change": true,
+            "calendar": true,
+            "details": true,
+            "hide_side_toolbar": false,
+            "hide_top_toolbar": false,
+            "hide_legend": true,
+            "hide_volume": true,
+            "hotlist": false,
+            "interval": "15",
+            "locale": "id",
+            "save_image": true,
+            "style": "1",
+            "symbol": "OANDA:XAUUSD",
+            "theme": "dark",
+            "timezone": "Asia/Jakarta",
+            "backgroundColor": "rgba(0, 0, 0, 1)",
+            "gridColor": "rgba(242, 242, 242, 0)",
+            "watchlist": [
+                "OANDA:XAUUSD",
+                "OANDA:EURUSD",
+                "FX:GBPUSD",
+                "OANDA:USDJPY",
+                "OANDA:AUDUSD",
+                "OANDA:USDCAD",
+                "OANDA:USDCHF",
+                "TVC:USOIL",
+                "OANDA:XAGUSD"
+            ],
+            "withdateranges": false,
+            "compareSymbols": [],
+            "studies": [],
+            "autosize": true
+            }
+            </script>
+        </div>
+        <!-- TradingView Widget END -->
+    </div>
+</body>
+</html>
