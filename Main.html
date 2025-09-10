@@ -424,32 +424,6 @@
             display: none !important;
         }
 
-        /* Translate Button Styles */
-        .translate-button {
-            background-color: #1a4a1a;
-            color: #00ff00;
-            border: 1px solid #00ff00;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: 'Source Code Pro', monospace;
-            font-size: 10px;
-            cursor: pointer;
-            margin-left: 4px;
-            transition: all 0.3s ease;
-            flex-shrink: 0;
-        }
-        .translate-button:hover {
-            background-color: #2a5a2a;
-            color: #00ff66;
-            border-color: #00ff66;
-        }
-        .translate-button:disabled {
-            background-color: #333;
-            color: #666;
-            border-color: #666;
-            cursor: not-allowed;
-        }
-
     </style>
 </head>
 <body>
@@ -526,265 +500,6 @@
         const unlockedIconSVG = `<svg viewBox="0 0 24 24" fill="transparent" stroke="#FFFFFF" stroke-width="2"><circle cx="12" cy="12" r="7"/></svg>`;
 
         const widgetDataList = [];
-
-        // Widget categories that support translation
-        const TRANSLATABLE_CATEGORIES = ['marketnews', 'marketresearch', 'centralbank', 'macrodata', 'marketparticipant'];
-
-        // Translation functionality using backend API
-        async function translateToIndonesian(text) {
-            try {
-                const response = await fetch('/api/translate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ text: text })
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    return result.translated_text;
-                } else {
-                    throw new Error(result.error || 'Translation failed');
-                }
-            } catch (error) {
-                console.error('Translation error:', error);
-                throw error;
-            }
-        }
-
-        // Function to translate multiple articles (up to 30) using backend
-        async function translateArticles(articles) {
-            try {
-                const response = await fetch('/api/translate-articles', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ articles: articles })
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    return result.translated_articles;
-                } else {
-                    throw new Error(result.error || 'Articles translation failed');
-                }
-            } catch (error) {
-                console.error('Translation error:', error);
-                // Return original articles if translation fails
-                return articles.slice(0, 30);
-            }
-        }
-
-        function isTranslatableWidget(widgetName, htmlFile) {
-            // Check if widget belongs to translatable categories
-            for (const category of widgetCategories) {
-                if (TRANSLATABLE_CATEGORIES.includes(category.id)) {
-                    const widget = category.widgets.find(w => 
-                        w.description === widgetName || w.htmlFile === htmlFile
-                    );
-                    if (widget) return true;
-                }
-            }
-            return false;
-        }
-
-        async function translateWidgetContent(widget) {
-            const translateButton = widget.querySelector('.translate-button');
-            const iframe = widget.querySelector('iframe');
-            
-            if (!translateButton || !iframe) return;
-            
-            const originalButtonText = translateButton.textContent;
-            translateButton.disabled = true;
-            translateButton.textContent = 'Menerjemahkan...';
-            
-            try {
-                // Wait for iframe to fully load
-                await new Promise(resolve => {
-                    if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
-                        resolve();
-                    } else {
-                        iframe.onload = resolve;
-                        // Timeout after 3 seconds if iframe doesn't load
-                        setTimeout(resolve, 3000);
-                    }
-                });
-                
-                let iframeDoc;
-                let contentElements = [];
-                
-                try {
-                    // Try to access iframe content directly
-                    iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    
-                    if (iframeDoc) {
-                        // Find all text-containing elements
-                        const selectors = [
-                            'p', 'div', 'span', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                            '.news-item', '.article', '.content', '.text', '.headline', '.title', '.description'
-                        ];
-                        
-                        for (const selector of selectors) {
-                            const elements = iframeDoc.querySelectorAll(selector);
-                            elements.forEach(element => {
-                                const text = element.textContent?.trim();
-                                if (text && text.length > 10 && text.length < 500) {
-                                    // Filter out common non-content text
-                                    const excludePatterns = [
-                                        /^(click|read more|loading|advertisement|ad|sponsored)/i,
-                                        /^(terms|privacy|policy|copyright|©)/i,
-                                        /^\d+$/, // Only numbers
-                                        /^[^a-zA-Z]*$/ // No letters
-                                    ];
-                                    
-                                    const shouldExclude = excludePatterns.some(pattern => pattern.test(text));
-                                    if (!shouldExclude) {
-                                        // Store element and its original text for translation
-                                        contentElements.push({
-                                            element: element,
-                                            originalText: text,
-                                            hasDirectText: element.childNodes.some(node => node.nodeType === 3 && node.textContent.trim().length > 0)
-                                        });
-                                    }
-                                }
-                            });
-                        }
-                        
-                        // If we found elements to translate
-                        if (contentElements.length > 0) {
-                            // Limit to first 30 items to avoid rate limiting
-                            contentElements = contentElements.slice(0, 30);
-                            
-                            // Extract texts for translation
-                            const textsToTranslate = contentElements.map(item => item.originalText);
-                            
-                            // Translate the content
-                            const translatedTexts = await translateArticles(textsToTranslate);
-                            
-                            // Apply translations back to elements
-                            for (let i = 0; i < contentElements.length && i < translatedTexts.length; i++) {
-                                const item = contentElements[i];
-                                const translatedText = translatedTexts[i];
-                                
-                                try {
-                                    // Replace text content while preserving HTML structure
-                                    if (item.hasDirectText) {
-                                        // If element has direct text nodes, replace them
-                                        const textNodes = Array.from(item.element.childNodes).filter(node => 
-                                            node.nodeType === 3 && node.textContent.trim().length > 0
-                                        );
-                                        
-                                        if (textNodes.length > 0) {
-                                            textNodes[0].textContent = translatedText;
-                                            // Remove other text nodes to avoid duplication
-                                            for (let j = 1; j < textNodes.length; j++) {
-                                                textNodes[j].remove();
-                                            }
-                                        }
-                                    } else {
-                                        // If no direct text nodes, replace innerHTML content carefully
-                                        const hasChildElements = item.element.children.length > 0;
-                                        if (!hasChildElements) {
-                                            item.element.textContent = translatedText;
-                                        }
-                                    }
-                                } catch (replaceError) {
-                                    console.log('Error replacing text in element:', replaceError);
-                                }
-                            }
-                            
-                            translateButton.textContent = 'EN'; // Change to indicate it can translate back
-                            showCustomModal(`Berhasil menerjemahkan ${translatedTexts.length} item ke bahasa Indonesia!`);
-                        } else {
-                            throw new Error('Tidak ada konten yang dapat diterjemahkan ditemukan');
-                        }
-                    } else {
-                        throw new Error('Tidak dapat mengakses konten iframe');
-                    }
-                } catch (iframeError) {
-                    console.log('Cannot access iframe content (CORS restriction):', iframeError.message);
-                    
-                    // Fallback: Try to inject translation script into iframe
-                    try {
-                        const iframeSrc = iframe.src;
-                        if (iframeSrc && !iframeSrc.includes('about:blank')) {
-                            // Send URL to backend for content extraction and translation
-                            const response = await fetch('/api/translate-url', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({ url: iframeSrc })
-                            });
-                            
-                            if (response.ok) {
-                                const result = await response.json();
-                                if (result.success) {
-                                    // Reload iframe with translated content
-                                    const translatedUrl = `/api/translated-page?url=${encodeURIComponent(iframeSrc)}`;
-                                    iframe.src = translatedUrl;
-                                    translateButton.textContent = 'EN';
-                                    showCustomModal('Berhasil menerjemahkan halaman ke bahasa Indonesia!');
-                                } else {
-                                    throw new Error(result.error || 'Gagal menerjemahkan halaman');
-                                }
-                            } else {
-                                throw new Error('Gagal memproses halaman untuk terjemahan');
-                            }
-                        } else {
-                            throw new Error('URL iframe tidak valid untuk terjemahan');
-                        }
-                    } catch (fallbackError) {
-                        const widgetTitle = widget.querySelector('.widget-title')?.textContent || '';
-                        throw new Error(`Tidak dapat menerjemahkan widget "${widgetTitle}". Widget ini mungkin menggunakan konten yang tidak dapat diakses.`);
-                    }
-                }
-                
-            } catch (error) {
-                console.error('Translation error:', error);
-                showCustomModal(`Error terjemahan: ${error.message}`);
-                translateButton.textContent = originalButtonText;
-            } finally {
-                translateButton.disabled = false;
-            }
-        }
-
-        function showTranslationResult(translatedContent) {
-            const modalOverlay = document.createElement('div');
-            modalOverlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center;';
-            
-            const modalContent = document.createElement('div');
-            modalContent.style.cssText = 'background: #1e1e1e; border: 2px solid #00ff00; border-radius: 8px; padding: 20px; max-width: 600px; max-height: 80vh; overflow-y: auto; color: #f0f0f0; font-family: "Source Code Pro", monospace;';
-            
-            const title = document.createElement('h3');
-            title.textContent = `Hasil Terjemahan Bahasa Indonesia (${translatedContent.length} Item)`;
-            title.style.cssText = 'margin: 0 0 15px 0; color: #00ff00; font-size: 16px;';
-            
-            const contentDiv = document.createElement('div');
-            translatedContent.forEach((text, index) => {
-                const item = document.createElement('p');
-                item.innerHTML = `<strong>${index + 1}.</strong> ${text}`;
-                item.style.cssText = 'margin: 10px 0; padding: 10px; background: #2a2a2a; border-radius: 4px; border-left: 3px solid #00ff00; line-height: 1.4;';
-                contentDiv.appendChild(item);
-            });
-            
-            const closeButton = document.createElement('button');
-            closeButton.textContent = 'Tutup';
-            closeButton.style.cssText = 'background: #00ff00; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace; margin-top: 15px; width: 100%;';
-            closeButton.onclick = () => document.body.removeChild(modalOverlay);
-            
-            modalContent.appendChild(title);
-            modalContent.appendChild(contentDiv);
-            modalContent.appendChild(closeButton);
-            modalOverlay.appendChild(modalContent);
-            document.body.appendChild(modalOverlay);
-            
-            closeButton.focus();
-        }
 
         const widgetCategories = [
             {
@@ -872,188 +587,393 @@
                     { name: "Market Headline", htmlFile: "Market Headline.html", options: { left: '10px', top: '420px', width: '450px', height: '564px' } },
                     { name: "Yield Curve", htmlFile: "Yield Curve.html", options: { left: '470px', top: '10px', width: '470px', height: '400px' } },
                     { name: "Interest Rate Forecast", htmlFile: "Interest Rate Forecast.html", options: { left: '470px', top: '420px', width: '470px', height: '564px' } },
-                    { name: "Central Bank Policy Statement", htmlFile: "CB Policy Statement.html", options: { left: '950px', top: '10px', width: '470px', height: '974px' } }
+                    { name: "Central Bank Policy Table", htmlFile: "CB Policy Table.html", options: { left: '950px', top: '10px', width: '960px', height: '350px' } },
+                    { name: "Central Bank Policy Statement", htmlFile: "CB Policy Statement.html", options: { left: '950px', top: '370px', width: '960px', height: '614px' } }
                 ]
             },
             {
-                id: "predefined-market-research",
-                name: "Market Research",
+                id: "predefined-market-news",
+                name: "Market News",
                 widgets: [
-                    { name: "Live Chart", htmlFile: "Chart.html", options: { left: '10px', top: '10px', width: '450px', height: '400px' } },
-                    { name: "Market Screener", htmlFile: "Market Screener.html", options: { left: '10px', top: '420px', width: '450px', height: '564px' } },
-                    { name: "Catalyst Explorer", htmlFile: "Catalyst Explorer.html", options: { left: '470px', top: '10px', width: '470px', height: '400px' } },
-                    { name: "Market Heatmap", htmlFile: "Market Heatmap.html", options: { left: '470px', top: '420px', width: '470px', height: '564px' } },
-                    { name: "Bank Research", htmlFile: "Bank Research.html", options: { left: '950px', top: '10px', width: '470px', height: '974px' } }
+                    { name: "Catalyst Explorer", htmlFile: "Catalyst Explorer.html", options: { left: '10px', top: '10px', width: '450px', height: '974px' } },
+                    { name: "News Articles", htmlFile: "News Article.html", options: { left: '470px', top: '10px', width: '450px', height: '974px' } },
+                    { name: "Finance Livestream - Bloomberg TV", htmlFile: "Bloomberg Youtube.html", options: { left: '930px', top: '10px', width: '480px', height: '400px' } },
+                    { name: "Bloomberg Video Feed", htmlFile: "Youtube Video Playlist.html", options: { left: '930px', top: '420px', width: '480px', height: '564px' } },
+                    { name: "Economic Calendar", htmlFile: "Economic Calendar.html", options: { left: '1420px', top: '10px', width: '490px', height: '974px' } }
                 ]
-            }
+            },
+            {
+                id: "predefined-macro",
+                name: "Macro",
+                widgets: [
+                    { name: "Macroeconomic Data", htmlFile: "Macroeconomic Data.html", options: { left: '10px', top: '10px', width: '850px', height: '974px' } },
+                    { name: "Market Forecast", htmlFile: "Market Forecast.html", options: { left: '870px', top: '10px', width: '500px', height: '500px' } },
+                    { name: "Central Bank Policy Table", htmlFile: "CB Policy Table.html", options: { left: '1380px', top: '10px', width: '530px', height: '477px' } },
+                    { name: "Yield Curve", htmlFile: "Yield Curve.html", options: { left: '870px', top: '520px', width: '1040px', height: '464px' } }
+                ]
+            },
+            {
+                id: "predefined-market-participant",
+                name: "Market Participant",
+                widgets: [
+                    { name: "CFTC - COTC Positioning Explorer", htmlFile: "CFTC COT.html", options: { left: '10px', top: '10px', width: '700px', height: '400px' } },
+                    { name: "Retail Trader Positioning Explorer", htmlFile: "Retail Trader.html", options: { left: '10px', top: '420px', width: '700px', height: '564px' } },
+                    { name: "COT Overview Dashboard", htmlFile: "CFTC COT Table.html", options: { left: '720px', top: '10px', width: '700px', height: '300px' } },
+                    { name: "Retail Trader Market Participant", htmlFile: "Market Participant Retail.html", options: { left: '720px', top: '320px', width: '700px', height: '300px' } },
+                    { name: "COT Historical Data Table", htmlFile: "CFTC COT Table.html", options: { left: '720px', top: '630px', width: '700px', height: '354px' } },
+                    { name: "Live Chart", htmlFile: "Chart.html", options: { left: '1430px', top: '10px', width: '480px', height: '600px' } },
+                    { name: "Retail Historical Data Table", htmlFile: "Retail Trader Table.html", options: { left: '1430px', top: '620px', width: '480px', height: '364px' } }
+                ]
+            },    
         ];
 
-        // --- UTILITY FUNCTIONS ---
         function getActiveWidgetCanvas() {
             if (!activeTabId) return null;
             return document.getElementById(`widget-canvas-${activeTabId}`);
         }
 
-        function forceCancelRename() {
-            if (currentRenameCleanupFunction) {
-                currentRenameCleanupFunction(false);
+        function populateWidgetDataList() {
+            widgetDataList.length = 0;
+            const addedTickers = new Set();
+            widgetCategories.forEach(category => {
+                category.widgets.forEach(widget => {
+                    if (!addedTickers.has(widget.ticker)) {
+                        widgetDataList.push({
+                            ticker: widget.ticker,
+                            name: widget.description,
+                            originalName: widget.ticker,
+                            htmlFile: widget.htmlFile
+                        });
+                        addedTickers.add(widget.ticker);
+                    }
+                });
+            });
+        }
+
+        function renderTopButtons() {
+            widgetButtonsGroup.innerHTML = ''; // Clear previous buttons
+            
+            // Render Widget Category Buttons
+            widgetCategories.forEach(category => {
+                const categoryGroup = document.createElement('div');
+                categoryGroup.className = 'category-group';
+                const categoryButton = document.createElement('button');
+                categoryButton.className = 'custom-button category-button';
+                categoryButton.textContent = category.name;
+                categoryButton.dataset.category = category.id;
+                categoryButton.title = `Show ${category.name}`;
+                const dropdown = document.createElement('div');
+                dropdown.className = 'category-dropdown hidden';
+                dropdown.dataset.dropdownFor = category.id;
+                category.widgets.forEach(widget => {
+                    const item = document.createElement('div');
+                    item.className = 'category-dropdown-item';
+                    item.textContent = `#${widget.ticker} - ${widget.description}`;
+                    item.dataset.ticker = widget.ticker;
+                    item.dataset.htmlFile = widget.htmlFile;
+                    item.title = `Create ${widget.description} widget`;
+                    item.addEventListener('click', () => {
+                        if (isRenamingTab) return;
+                        createWidget(widget.description, widget.htmlFile, {}, true, getActiveWidgetCanvas());
+                        dropdown.classList.add('hidden');
+                    });
+                    dropdown.appendChild(item);
+                });
+                categoryButton.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    if (isRenamingTab) return;
+                    const isHidden = dropdown.classList.contains('hidden');
+                    document.querySelectorAll('.category-dropdown:not(.hidden)').forEach(d => {
+                        if (d !== dropdown) d.classList.add('hidden');
+                    });
+                    if (isHidden) {
+                        dropdown.classList.remove('hidden');
+                    } else {
+                        dropdown.classList.add('hidden');
+                    }
+                });
+                categoryGroup.appendChild(categoryButton);
+                categoryGroup.appendChild(dropdown);
+                widgetButtonsGroup.appendChild(categoryGroup);
+            });
+        }
+
+        function activateSearch() {
+            if (isRenamingTab) return;
+            searchWidgetIconButton.classList.add('hidden');
+            searchWidgetInput.classList.remove('hidden');
+            searchWidgetInput.focus();
+            displaySuggestions();
+        }
+
+        function deactivateSearch() {
+            searchWidgetInput.value = '';
+            searchWidgetInput.classList.add('hidden');
+            searchWidgetIconButton.classList.remove('hidden');
+            searchSuggestionsList.classList.add('hidden');
+            searchSuggestionsList.innerHTML = '';
+        }
+
+        function displaySuggestions(filterQuery = '') {
+            searchSuggestionsList.innerHTML = '';
+            const query = filterQuery.toLowerCase();
+            const filtered = widgetDataList.filter(widget =>
+                widget.ticker.toLowerCase().includes(query) ||
+                widget.name.toLowerCase().includes(query)
+            );
+            const sourceList = filterQuery ? filtered : widgetDataList;
+            sourceList.slice(0, 10).forEach(widget => addSuggestionItem(widget));
+            if (searchSuggestionsList.children.length > 0) {
+                searchSuggestionsList.classList.remove('hidden');
+            } else {
+                searchSuggestionsList.classList.add('hidden');
             }
         }
 
-        // --- LAYOUT MANAGEMENT SYSTEM ---
-        // Save current active tab and its widgets to localStorage
-        function saveLayout() {
-            const activeCanvas = getActiveWidgetCanvas();
-            const activeTabObject = tabs.find(t => t.id === activeTabId);
-
-            if (!activeCanvas || !activeTabObject) return;
-
-            // Update widgets array for the active tab
-            const widgets = Array.from(activeCanvas.querySelectorAll('.widget')).map(widget => {
-                return {
-                    name: widget.dataset.widgetName,
-                    htmlFile: widget.dataset.htmlFile,
-                    options: {
-                        id: widget.id,
-                        left: widget.style.left,
-                        top: widget.style.top,
-                        width: widget.style.width,
-                        height: widget.style.height,
-                        zIndex: parseInt(widget.style.zIndex || 0),
-                        locked: widget.dataset.locked === 'true'
-                    }
-                };
+        function addSuggestionItem(widget) {
+            const item = document.createElement('div');
+            item.className = 'suggestion-item cursor-pointer';
+            item.textContent = `#${widget.ticker} - ${widget.name}`;
+            item.dataset.ticker = widget.ticker;
+            item.addEventListener('click', () => {
+                triggerWidgetCreation(widget.ticker);
+                deactivateSearch();
             });
-
-            activeTabObject.widgets = widgets; // Update the specific tab's widgets
-            activeTabObject.highestZ = currentHighestZ; // Update the tab's highestZ
-            activeTabObject.widgetCounter = currentWidgetCounter; // Update the tab's counter
-
-            localStorage.setItem(TAB_STORAGE_KEY, JSON.stringify(tabs)); // Save all tabs
+            searchSuggestionsList.appendChild(item);
         }
 
-        // Load tabs and widgets from localStorage
-        function loadLayout() {
-            try {
-                const savedTabsData = localStorage.getItem(TAB_STORAGE_KEY);
-                if (savedTabsData) {
-                    tabs = JSON.parse(savedTabsData);
-                    if (tabs.length === 0) {
-                        addDefaultTab();
-                    } else {
-                        tabs.forEach(tab => {
-                            // Create canvas for each loaded tab
-                            const tabCanvas = document.createElement('div');
-                            tabCanvas.id = `widget-canvas-${tab.id}`;
-                            tabCanvas.className = 'widget-canvas-area';
-                            tabCanvas.style.display = 'none'; // Initially hidden
-                            mainContent.appendChild(tabCanvas);
-                        });
-                        // Make the first tab active and load its widgets
-                        switchTab(tabs[0].id);
-                        loadWidgetsIntoActiveTab();
-                    }
+        function triggerWidgetCreation(ticker) {
+            const widgetFound = widgetDataList.find(w => w.ticker.toUpperCase() === ticker.toUpperCase());
+            if (widgetFound) {
+                createWidget(widgetFound.name, widgetFound.htmlFile, {}, true, getActiveWidgetCanvas());
+            } else {
+                showCustomModal(`Widget with ticker "${ticker}" not found.`);
+            }
+        }
+
+        searchWidgetIconButton.addEventListener('click', activateSearch);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '`' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                if (searchWidgetInput.classList.contains('hidden')) {
+                    activateSearch();
                 } else {
-                    addDefaultTab();
+                    searchWidgetInput.focus();
+                }
+            }
+        });
+        searchWidgetInput.addEventListener('input', () => displaySuggestions(searchWidgetInput.value));
+        searchWidgetInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (searchWidgetInput.value.trim()) {
+                    const firstSuggestion = searchSuggestionsList.querySelector('.suggestion-item');
+                    if (firstSuggestion && firstSuggestion.dataset.ticker.toLowerCase() === searchWidgetInput.value.trim().toLowerCase()) {
+                        triggerWidgetCreation(firstSuggestion.dataset.ticker);
+                    } else { // Allow direct ticker input even if not top suggestion
+                         triggerWidgetCreation(searchWidgetInput.value.trim());
+                    }
+                }
+                deactivateSearch();
+            } else if (e.key === 'Escape') {
+                deactivateSearch();
+            }
+        });
+        searchWidgetInput.addEventListener('blur', () => {
+            setTimeout(() => {
+                if (!searchSuggestionsList.matches(':hover') && document.activeElement !== searchWidgetInput && !searchSuggestionsList.contains(document.activeElement)) {
+                    deactivateSearch();
+                }
+            }, 150);
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!searchWidgetArea.contains(event.target) && !searchWidgetInput.classList.contains('hidden') && !searchSuggestionsList.contains(event.target)) {
+                deactivateSearch();
+            }
+            if (isRenamingTab && currentRenameCleanupFunction) {
+                const activeTabElement = tabBar.querySelector('.tab-item.renaming');
+                if (activeTabElement && !activeTabElement.contains(event.target)) {
+                    forceCancelRename();
+                }
+            }
+            document.querySelectorAll('.category-dropdown:not(.hidden)').forEach(dropdown => {
+                const categoryGroup = dropdown.closest('.category-group');
+                if (categoryGroup && !categoryGroup.contains(event.target)) {
+                    dropdown.classList.add('hidden');
+                }
+            });
+        });
+
+        function forceCancelRename() {
+            if (typeof currentRenameCleanupFunction === 'function') {
+                currentRenameCleanupFunction(false); // Call cleanup with 'shouldSave' as false
+            }
+        }
+
+        // --- Tab and Layout Management ---
+        function saveLayout() { // Saves the currently active tab's DOM state to the `tabs` array, then saves all to localStorage
+            const activeTabObject = tabs.find(t => t.id === activeTabId);
+            const activeCanvas = getActiveWidgetCanvas();
+
+            if (activeTabObject && activeCanvas) {
+                activeTabObject.widgets = [];
+                activeCanvas.querySelectorAll('.widget').forEach(widgetEl => {
+                    activeTabObject.widgets.push({
+                        id: widgetEl.id,
+                        name: widgetEl.dataset.widgetName,
+                        htmlFile: widgetEl.dataset.htmlFile,
+                        left: widgetEl.style.left,
+                        top: widgetEl.style.top,
+                        width: widgetEl.style.width,
+                        height: widgetEl.style.height,
+                        zIndex: parseInt(widgetEl.style.zIndex) || 0,
+                        locked: widgetEl.dataset.locked === 'true'
+                    });
+                });
+                activeTabObject.highestZ = currentHighestZ; // currentHighestZ is already updated for the active tab
+                activeTabObject.widgetCounter = currentWidgetCounter; // Same for currentWidgetCounter
+            }
+            try {
+                localStorage.setItem(TAB_STORAGE_KEY, JSON.stringify({ tabs, activeTabId }));
+            } catch (error) {
+                console.error('Error saving layout to localStorage:', error);
+                showCustomModal('Error: Could not save layout. LocalStorage might be full or disabled.');
+            }
+        }
+
+        function loadLayout() {
+            forceCancelRename();
+            mainContent.innerHTML = ''; // Clear any existing tab canvases
+
+            let savedData;
+            try {
+                const savedDataJSON = localStorage.getItem(TAB_STORAGE_KEY);
+                if (savedDataJSON) {
+                    savedData = JSON.parse(savedDataJSON);
+                    tabs = savedData.tabs || [];
+                    activeTabId = savedData.activeTabId || null;
                 }
             } catch (error) {
-                console.error('Error loading layout:', error);
-                addDefaultTab();
+                console.error('Error parsing layout from localStorage:', error);
+                tabs = []; activeTabId = null; // Reset on error
+                showCustomModal('Error loading layout. Previous data might be corrupted. Starting fresh.');
             }
-            renderTabs(); // Render tab buttons
-        }
 
-        function addDefaultTab() {
-            const defaultTabId = `tab-${Date.now()}`;
-            const defaultTabObject = { id: defaultTabId, name: 'Workspace 1', widgets: [], highestZ: 0, widgetCounter: 0 };
-            tabs.push(defaultTabObject);
 
-            // Create canvas for the default tab
-            const defaultTabCanvas = document.createElement('div');
-            defaultTabCanvas.id = `widget-canvas-${defaultTabId}`;
-            defaultTabCanvas.className = 'widget-canvas-area';
-            defaultTabCanvas.style.display = 'block'; // This will be the initial active tab
-            mainContent.appendChild(defaultTabCanvas);
+            if (tabs.length === 0) {
+                const initialTabId = `tab-${Date.now()}`;
+                tabs = [{ id: initialTabId, name: 'Dashboard', widgets: [], highestZ: 0, widgetCounter: 0 }];
+                activeTabId = initialTabId;
+                // Automatically load the default layout for the first-ever tab
+                const defaultLayout = predefinedLayouts.find(l => l.name === "Dashboard");
+                if (defaultLayout) {
+                    const activeTabObject = tabs.find(t => t.id === activeTabId);
+                    activeTabObject.widgets = JSON.parse(JSON.stringify(defaultLayout.widgets.map(w => ({...w.options, name: w.name, htmlFile: w.htmlFile}))));
+                }
+            } else if (!activeTabId || !tabs.find(t => t.id === activeTabId)) {
+                activeTabId = tabs[0].id; // Default to first tab if active one is invalid
+            }
 
-            activeTabId = defaultTabId; // Set as active
-            currentHighestZ = 0;
-            currentWidgetCounter = 0;
-        }
+            tabs.forEach(tab => {
+                const tabCanvas = document.createElement('div');
+                tabCanvas.id = `widget-canvas-${tab.id}`;
+                tabCanvas.className = 'widget-canvas-area';
+                if (tab.id !== activeTabId) {
+                    tabCanvas.style.display = 'none';
+                }
+                mainContent.appendChild(tabCanvas);
 
-        function loadWidgetsIntoActiveTab() {
-            const activeCanvas = getActiveWidgetCanvas();
-            const activeTabObject = tabs.find(t => t.id === activeTabId);
+                // Ensure highestZ and widgetCounter are numbers
+                tab.highestZ = Number(tab.highestZ) || 0;
+                tab.widgetCounter = Number(tab.widgetCounter) || 0;
 
-            if (!activeCanvas || !activeTabObject) return;
-
-            // Clear existing widgets in the canvas (if any)
-            activeCanvas.innerHTML = '';
-
-            // Load widgets from the active tab's data
-            activeTabObject.widgets.forEach(widgetData => {
-                createWidget(widgetData.name, widgetData.htmlFile, widgetData.options, false, activeCanvas);
+                // Create widgets for this tab
+                if (Array.isArray(tab.widgets)) {
+                    tab.widgets.forEach(widgetData => {
+                        // Pass the specific tabCanvas for widget creation
+                        createWidget(widgetData.name, widgetData.htmlFile, widgetData, false, tabCanvas);
+                    });
+                } else {
+                    tab.widgets = []; // Ensure it's an array
+                }
             });
 
-            // Update global counters to match the loaded tab's state
-            currentHighestZ = activeTabObject.highestZ || 0;
-            currentWidgetCounter = activeTabObject.widgetCounter || 0;
+            // Set global counters based on the truly active tab
+            const currentActiveTabObject = tabs.find(t => t.id === activeTabId);
+            if (currentActiveTabObject) {
+                currentHighestZ = currentActiveTabObject.highestZ;
+                currentWidgetCounter = currentActiveTabObject.widgetCounter;
+            } else { // Should not happen if logic above is correct
+                currentHighestZ = 0;
+                currentWidgetCounter = 0;
+            }
 
-            updateScrollability();
+            renderTabs();
+            updateScrollability(); // For the initially active tab
         }
 
-        // --- TAB MANAGEMENT ---
+
         function renderTabs() {
+            forceCancelRename();
             tabBar.innerHTML = '';
             tabs.forEach(tab => {
                 const tabElement = document.createElement('div');
-                tabElement.className = `tab-item ${tab.id === activeTabId ? 'active' : ''}`;
-                
+                tabElement.className = 'tab-item';
+                tabElement.dataset.tabId = tab.id;
+                if (tab.id === activeTabId) {
+                    tabElement.classList.add('active');
+                }
+
                 const tabNameSpan = document.createElement('span');
                 tabNameSpan.className = 'tab-name';
                 tabNameSpan.textContent = tab.name;
-                tabNameSpan.addEventListener('dblclick', () => {
-                    const renameInput = tabElement.querySelector('.rename-input');
-                    const saveButton = tabElement.querySelector('.rename-button:first-of-type');
-                    const cancelButton = tabElement.querySelector('.rename-button:last-of-type');
-                    startInlineRename(tab, tabElement, tabNameSpan, renameInput, saveButton, cancelButton);
-                });
-                
-                const closeButton = document.createElement('button');
-                closeButton.className = 'close-tab-button';
-                closeButton.innerHTML = '×';
-                closeButton.title = 'Close Tab';
-                closeButton.addEventListener('click', (e) => {
-                    e.stopPropagation(); 
-                    closeTab(tab.id);
-                });
+                tabNameSpan.title = "Double-click to rename";
+                tabElement.appendChild(tabNameSpan);
 
-                // Inline rename controls (hidden by default)
                 const renameControls = document.createElement('div');
                 renameControls.className = 'rename-controls';
-                
                 const renameInput = document.createElement('input');
                 renameInput.type = 'text';
                 renameInput.className = 'rename-input';
-                
-                const saveButton = document.createElement('button');
-                saveButton.className = 'rename-button';
-                saveButton.innerHTML = '✓';
-                saveButton.title = 'Save';
-                
-                const cancelButton = document.createElement('button');
-                cancelButton.className = 'rename-button';
-                cancelButton.innerHTML = '✕';
-                cancelButton.title = 'Cancel';
-                
+                const saveNameButton = document.createElement('button');
+                saveNameButton.className = 'rename-button rename-save-button';
+                saveNameButton.innerHTML = '&#10003;';
+                saveNameButton.title = 'Save';
+                const cancelNameButton = document.createElement('button');
+                cancelNameButton.className = 'rename-button rename-cancel-button';
+                cancelNameButton.innerHTML = '&#10005;';
+                cancelNameButton.title = 'Cancel';
                 renameControls.appendChild(renameInput);
-                renameControls.appendChild(saveButton);
-                renameControls.appendChild(cancelButton);
-
-                tabElement.appendChild(tabNameSpan);
-                tabElement.appendChild(closeButton);
+                renameControls.appendChild(saveNameButton);
+                renameControls.appendChild(cancelNameButton);
                 tabElement.appendChild(renameControls);
 
-                tabElement.addEventListener('click', () => switchTab(tab.id));
+                tabNameSpan.addEventListener('dblclick', () => {
+                    startInlineRename(tab, tabElement, tabNameSpan, renameInput, saveNameButton, cancelNameButton);
+                });
+
+                if (tabs.length > 1) {
+                    const closeButton = document.createElement('button');
+                    closeButton.className = 'close-tab-button';
+                    closeButton.innerHTML = '&times;';
+                    closeButton.title = 'Close Tab';
+                    closeButton.onclick = (e) => {
+                        if (isRenamingTab) return;
+                        e.stopPropagation();
+                        closeTab(tab.id);
+                    };
+                    tabElement.appendChild(closeButton);
+                }
+
+                tabElement.addEventListener('click', (e) => {
+                    if (tabElement.classList.contains('renaming')) {
+                        if (!renameControls.contains(e.target) && e.target !== renameInput) return;
+                    } else if (isRenamingTab) {
+                         return;
+                    }
+                    switchTab(tab.id);
+                });
                 tabBar.appendChild(tabElement);
             });
         }
@@ -1264,20 +1184,6 @@
 
             controls.appendChild(lockButton);
             controls.appendChild(deleteButton);
-            
-            // Add translate button for translatable widgets
-            if (isTranslatableWidget(widgetDisplayName, htmlFile)) {
-                const translateButton = document.createElement('button');
-                translateButton.className = 'translate-button';
-                translateButton.textContent = 'ID';
-                translateButton.title = 'Translate to Indonesian';
-                translateButton.onclick = (e) => {
-                    e.stopPropagation();
-                    translateWidgetContent(widget);
-                };
-                controls.appendChild(translateButton);
-            }
-            
             header.appendChild(title);
             header.appendChild(controls);
 
@@ -1560,529 +1466,354 @@
             }
         }
 
-        // --- CUSTOM MODAL DIALOGS ---
-        function showCustomModal(message) {
+        function showCustomModal(message, onOk) {
+            const existingModal = document.getElementById('customModalOverlay');
+            if (existingModal) document.body.removeChild(existingModal);
             const modalOverlay = document.createElement('div');
-            modalOverlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center;';
-            
+            modalOverlay.id = 'customModalOverlay';
+            modalOverlay.style.cssText = `position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 10000;`;
             const modalContent = document.createElement('div');
-            modalContent.style.cssText = 'background: #1e1e1e; border: 2px solid #FFA500; border-radius: 8px; padding: 20px; max-width: 400px; color: #f0f0f0; font-family: "Source Code Pro", monospace;';
-            
-            const messageText = document.createElement('p');
-            messageText.textContent = message;
-            messageText.style.cssText = 'margin: 0 0 15px 0; color: #f0f0f0;';
-            
+            modalContent.style.cssText = `background-color: #2a2a2a; color: #f0f0f0; padding: 25px; border-radius: 8px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 400px; font-family: 'Source Code Pro', monospace;`;
+            const messageP = document.createElement('p');
+            messageP.textContent = message;
+            messageP.style.marginBottom = '20px';
+            messageP.style.fontSize = '14px';
             const okButton = document.createElement('button');
             okButton.textContent = 'OK';
-            okButton.style.cssText = 'background: #FFA500; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace;';
-            okButton.onclick = () => document.body.removeChild(modalOverlay);
-            
-            modalContent.appendChild(messageText);
+            okButton.style.cssText = `background-color: #FFA500; color: #000; border: none; padding: 8px 18px; border-radius: 4px; cursor: pointer; font-size: 13px; font-family: 'Source Code Pro', monospace;`;
+            okButton.onclick = () => {
+                document.body.removeChild(modalOverlay);
+                if (onOk) onOk();
+            };
+            modalContent.appendChild(messageP);
             modalContent.appendChild(okButton);
             modalOverlay.appendChild(modalContent);
             document.body.appendChild(modalOverlay);
-            
-            okButton.focus();
         }
 
-        function showCustomConfirm(message, callback) {
+        function showCustomConfirm(message, onConfirm) {
+            const existingModal = document.getElementById('customConfirmModalOverlay');
+            if (existingModal) document.body.removeChild(existingModal);
             const modalOverlay = document.createElement('div');
-            modalOverlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center;';
-            
+            modalOverlay.id = 'customConfirmModalOverlay';
+            modalOverlay.style.cssText = `position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 10000;`;
             const modalContent = document.createElement('div');
-            modalContent.style.cssText = 'background: #1e1e1e; border: 2px solid #FFA500; border-radius: 8px; padding: 20px; max-width: 400px; color: #f0f0f0; font-family: "Source Code Pro", monospace;';
-            
-            const messageText = document.createElement('p');
-            messageText.textContent = message;
-            messageText.style.cssText = 'margin: 0 0 15px 0; color: #f0f0f0;';
-            
-            const buttonContainer = document.createElement('div');
-            buttonContainer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end;';
-            
-            const cancelButton = document.createElement('button');
-            cancelButton.textContent = 'Cancel';
-            cancelButton.style.cssText = 'background: #333; color: #ccc; border: 1px solid #555; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace;';
-            cancelButton.onclick = () => document.body.removeChild(modalOverlay);
-            
+            modalContent.style.cssText = `background-color: #2a2a2a; color: #f0f0f0; padding: 25px; border-radius: 8px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 400px; font-family: 'Source Code Pro', monospace;`;
+            const messageP = document.createElement('p');
+            messageP.textContent = message;
+            messageP.style.marginBottom = '20px';
+            messageP.style.fontSize = '14px';
+            const buttonContainerEl = document.createElement('div');
+            buttonContainerEl.style.display = 'flex';
+            buttonContainerEl.style.justifyContent = 'space-around';
+            buttonContainerEl.style.gap = '10px';
             const confirmButton = document.createElement('button');
-            confirmButton.textContent = 'Confirm';
-            confirmButton.style.cssText = 'background: #FFA500; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace;';
+            confirmButton.textContent = 'Yes';
+            confirmButton.style.cssText = `background-color: #FFA500; color: #000; border: none; padding: 8px 18px; border-radius: 4px; cursor: pointer; font-size: 13px; flex-grow: 1; font-family: 'Source Code Pro', monospace;`;
             confirmButton.onclick = () => {
                 document.body.removeChild(modalOverlay);
-                if (callback) callback();
+                onConfirm();
             };
-            
-            buttonContainer.appendChild(cancelButton);
-            buttonContainer.appendChild(confirmButton);
-            modalContent.appendChild(messageText);
-            modalContent.appendChild(buttonContainer);
+            const cancelButton = document.createElement('button');
+            cancelButton.textContent = 'Cancel';
+            cancelButton.style.cssText = `background-color: #555; color: #f0f0f0; border: none; padding: 8px 18px; border-radius: 4px; cursor: pointer; font-size: 13px; flex-grow: 1; font-family: 'Source Code Pro', monospace;`;
+            cancelButton.onclick = () => document.body.removeChild(modalOverlay);
+            buttonContainerEl.appendChild(confirmButton);
+            buttonContainerEl.appendChild(cancelButton);
+            modalContent.appendChild(messageP);
+            modalContent.appendChild(buttonContainerEl);
             modalOverlay.appendChild(modalContent);
             document.body.appendChild(modalOverlay);
-            
-            confirmButton.focus();
         }
 
-        // --- USER LAYOUT MANAGEMENT ---
-        let userLayouts = [];
-
-        function saveUserLayouts() {
-            localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(userLayouts));
-        }
-
-        function loadUserLayouts() {
+        // --- LAYOUT MANAGEMENT (NEW & IMPROVED) ---
+        
+        function getSavedLayouts() {
             try {
-                const savedLayouts = localStorage.getItem(LAYOUT_STORAGE_KEY);
-                if (savedLayouts) {
-                    userLayouts = JSON.parse(savedLayouts);
-                }
+                const layoutsJSON = localStorage.getItem(LAYOUT_STORAGE_KEY);
+                return layoutsJSON ? JSON.parse(layoutsJSON) : [];
             } catch (error) {
-                console.error('Error loading user layouts:', error);
-                userLayouts = [];
+                console.error("Error reading user layouts from localStorage:", error);
+                return [];
             }
         }
 
-        function showLayoutManager() {
-            if (isRenamingTab) return;
+        function saveUserLayouts(layouts) {
+            try {
+                localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layouts));
+            } catch (error) {
+                console.error("Error saving user layouts to localStorage:", error);
+                showCustomModal("Error saving layouts.");
+            }
+        }
+        
+        function showLayoutManagerModal() {
+            const existingModal = document.getElementById('layoutManagerModal');
+            if (existingModal) document.body.removeChild(existingModal);
 
             const modalOverlay = document.createElement('div');
-            modalOverlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+            modalOverlay.id = 'layoutManagerModal';
+            modalOverlay.style.cssText = `position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 10000;`;
             
             const modalContent = document.createElement('div');
-            modalContent.style.cssText = 'background: #1e1e1e; border: 2px solid #FFA500; border-radius: 8px; padding: 20px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; color: #f0f0f0; font-family: "Source Code Pro", monospace;';
+            modalContent.style.cssText = `background-color: #2a2a2a; color: #f0f0f0; padding: 20px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); width: 90%; max-width: 600px; font-family: 'Source Code Pro', monospace; display: flex; flex-direction: column; max-height: 80vh;`;
+
+            const modalHeader = document.createElement('h3');
+            modalHeader.textContent = 'Layout Manager';
+            modalHeader.style.cssText = `text-align: center; margin-top: 0; margin-bottom: 20px; color: #FFA500;`;
             
-            const title = document.createElement('h3');
-            title.textContent = 'Layout Manager';
-            title.style.cssText = 'margin: 0 0 15px 0; color: #FFA500; font-size: 18px;';
-            
-            // Save current layout section
-            const saveSection = document.createElement('div');
-            saveSection.style.cssText = 'margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333;';
-            
-            const saveTitle = document.createElement('h4');
-            saveTitle.textContent = 'Save Current Layout';
-            saveTitle.style.cssText = 'margin: 0 0 10px 0; color: #FFA500; font-size: 14px;';
-            
-            const saveInputContainer = document.createElement('div');
-            saveInputContainer.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
-            
-            const saveInput = document.createElement('input');
-            saveInput.type = 'text';
-            saveInput.placeholder = 'Layout name...';
-            saveInput.style.cssText = 'flex: 1; background: #333; color: #f0f0f0; border: 1px solid #555; border-radius: 4px; padding: 8px; font-family: "Source Code Pro", monospace;';
-            
+            // --- Save/Import Section ---
+            const topActionsContainer = document.createElement('div');
+            topActionsContainer.style.cssText = `display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #444;`;
+
+            const saveContainer = document.createElement('div');
+            saveContainer.style.cssText = `display: flex; flex-grow: 1; min-width: 250px;`;
+            const layoutNameInput = document.createElement('input');
+            layoutNameInput.type = 'text';
+            layoutNameInput.placeholder = 'New layout name...';
+            layoutNameInput.style.cssText = `flex-grow: 1; background-color: #1e1e1e; color: #f0f0f0; border: 1px solid #444; border-radius: 4px 0 0 4px; padding: 8px; font-size: 13px; border-right: none;`;
             const saveButton = document.createElement('button');
-            saveButton.textContent = 'Save';
-            saveButton.style.cssText = 'background: #FFA500; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace;';
+            saveButton.textContent = 'Save Current';
+            saveButton.title = "Save the current tab's layout";
+            saveButton.style.cssText = `background-color: #FFA500; color: #000; border: none; padding: 8px 15px; border-radius: 0 4px 4px 0; cursor: pointer; font-size: 13px; white-space: nowrap;`;
+            saveContainer.appendChild(layoutNameInput);
+            saveContainer.appendChild(saveButton);
+
+            const importButton = document.createElement('button');
+            importButton.textContent = 'Import From File';
+            importButton.title = 'Import a .json layout file';
+            importButton.style.cssText = `background-color: #338a3e; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-size: 13px;`;
+
+            topActionsContainer.appendChild(saveContainer);
+            topActionsContainer.appendChild(importButton);
+
+            // --- Lists Container ---
+            const listsContainer = document.createElement('div');
+            listsContainer.style.cssText = `flex-grow: 1; overflow-y: auto;`;
+
+            const closeModalButton = document.createElement('button');
+            closeModalButton.textContent = 'Close';
+            closeModalButton.style.cssText = `background-color: #555; color: #f0f0f0; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 13px; margin-top: 20px; align-self: center;`;
             
-            saveInputContainer.appendChild(saveInput);
-            saveInputContainer.appendChild(saveButton);
-            saveSection.appendChild(saveTitle);
-            saveSection.appendChild(saveInputContainer);
-            
-            // Predefined layouts section
-            const predefinedSection = document.createElement('div');
-            predefinedSection.style.cssText = 'margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333;';
-            
-            const predefinedTitle = document.createElement('h4');
-            predefinedTitle.textContent = 'Predefined Layouts';
-            predefinedTitle.style.cssText = 'margin: 0 0 10px 0; color: #FFA500; font-size: 14px;';
-            
-            const predefinedList = document.createElement('div');
-            
-            predefinedLayouts.forEach(layout => {
-                const layoutItem = document.createElement('div');
-                layoutItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border: 1px solid #333; border-radius: 4px; margin-bottom: 5px; background: #2a2a2a;';
-                
-                const layoutName = document.createElement('span');
-                layoutName.textContent = layout.name;
-                layoutName.style.cssText = 'color: #f0f0f0;';
-                
-                const loadButton = document.createElement('button');
-                loadButton.textContent = 'Load';
-                loadButton.style.cssText = 'background: #444; color: #ccc; border: 1px solid #555; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace;';
-                loadButton.onclick = () => {
-                    loadPredefinedLayout(layout);
+            modalContent.appendChild(modalHeader);
+            modalContent.appendChild(topActionsContainer);
+            modalContent.appendChild(listsContainer);
+            modalContent.appendChild(closeModalButton);
+            modalOverlay.appendChild(modalContent);
+            modalOverlay.addEventListener('click', (e) => {
+                if (e.target === modalOverlay) {
                     document.body.removeChild(modalOverlay);
-                };
-                
-                layoutItem.appendChild(layoutName);
-                layoutItem.appendChild(loadButton);
-                predefinedList.appendChild(layoutItem);
+                }
             });
-            
-            predefinedSection.appendChild(predefinedTitle);
-            predefinedSection.appendChild(predefinedList);
-            
-            // User layouts section
-            const userSection = document.createElement('div');
-            userSection.style.cssText = 'margin-bottom: 20px;';
-            
-            const userTitle = document.createElement('h4');
-            userTitle.textContent = 'Your Saved Layouts';
-            userTitle.style.cssText = 'margin: 0 0 10px 0; color: #FFA500; font-size: 14px;';
-            
-            const userList = document.createElement('div');
-            
-            function renderUserLayouts() {
-                userList.innerHTML = '';
+            closeModalButton.onclick = () => document.body.removeChild(modalOverlay);
+            document.body.appendChild(modalOverlay);
+
+            function renderLayoutLists() {
+                listsContainer.innerHTML = '';
                 
-                if (userLayouts.length === 0) {
-                    const emptyMessage = document.createElement('p');
-                    emptyMessage.textContent = 'No saved layouts';
-                    emptyMessage.style.cssText = 'color: #888; font-style: italic; margin: 0;';
-                    userList.appendChild(emptyMessage);
-                } else {
-                    userLayouts.forEach((layout, index) => {
-                        const layoutItem = document.createElement('div');
-                        layoutItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border: 1px solid #333; border-radius: 4px; margin-bottom: 5px; background: #2a2a2a;';
-                        
-                        const layoutName = document.createElement('span');
-                        layoutName.textContent = layout.name;
-                        layoutName.style.cssText = 'color: #f0f0f0; flex: 1;';
-                        
-                        const buttonContainer = document.createElement('div');
-                        buttonContainer.style.cssText = 'display: flex; gap: 5px;';
-                        
-                        const loadButton = document.createElement('button');
-                        loadButton.textContent = 'Load';
-                        loadButton.style.cssText = 'background: #444; color: #ccc; border: 1px solid #555; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace;';
-                        loadButton.onclick = () => {
-                            loadUserLayout(layout);
-                            document.body.removeChild(modalOverlay);
-                        };
-                        
-                        const deleteButton = document.createElement('button');
-                        deleteButton.textContent = 'Delete';
-                        deleteButton.style.cssText = 'background: #662222; color: #ff6666; border: 1px solid #773333; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace;';
-                        deleteButton.onclick = () => {
-                            userLayouts.splice(index, 1);
-                            saveUserLayouts();
-                            renderUserLayouts();
-                        };
-                        
-                        buttonContainer.appendChild(loadButton);
-                        buttonContainer.appendChild(deleteButton);
-                        layoutItem.appendChild(layoutName);
-                        layoutItem.appendChild(buttonContainer);
-                        userList.appendChild(layoutItem);
-                    });
-                }
+                // Predefined Layouts
+                const predefinedList = createLayoutSection('Predefined Layouts', predefinedLayouts, false);
+                listsContainer.appendChild(predefinedList);
+
+                // User-saved Layouts
+                const userLayouts = getSavedLayouts();
+                const userList = createLayoutSection('My Layouts', userLayouts, true);
+                listsContainer.appendChild(userList);
             }
-            
-            renderUserLayouts();
-            
-            userSection.appendChild(userTitle);
-            userSection.appendChild(userList);
-            
-            // Close button
-            const closeButton = document.createElement('button');
-            closeButton.textContent = 'Close';
-            closeButton.style.cssText = 'background: #333; color: #ccc; border: 1px solid #555; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: "Source Code Pro", monospace; width: 100%;';
-            closeButton.onclick = () => document.body.removeChild(modalOverlay);
-            
-            // Save layout functionality
+
+            function createLayoutSection(title, layouts, isUserSection) {
+                const section = document.createElement('div');
+                section.style.marginBottom = '20px';
+                const sectionTitle = document.createElement('h4');
+                sectionTitle.textContent = title;
+                sectionTitle.style.cssText = `color: #ccc; margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px;`;
+                section.appendChild(sectionTitle);
+
+                if (layouts.length === 0) {
+                    section.innerHTML += `<p style="text-align: center; color: #888; padding: 10px 0;">No layouts in this section.</p>`;
+                    return section;
+                }
+
+                const listContainer = document.createElement('div');
+                listContainer.style.cssText = `max-height: 200px; overflow-y: auto; padding-right: 5px;`;
+                layouts.forEach(layout => {
+                    const item = document.createElement('div');
+                    item.style.cssText = `display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #333;`;
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = layout.name;
+                    nameSpan.style.fontSize = '14px';
+                    
+                    const buttonsDiv = document.createElement('div');
+                    buttonsDiv.style.display = 'flex';
+                    buttonsDiv.style.gap = '8px';
+
+                    const loadBtn = document.createElement('button');
+                    loadBtn.textContent = 'Load';
+                    loadBtn.style.cssText = `background-color: #338a3e; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;`;
+                    loadBtn.onclick = () => {
+                        showCustomConfirm(`Load layout "${layout.name}"? This will replace the current tab's content.`, () => {
+                            loadLayoutData(layout);
+                            document.body.removeChild(modalOverlay);
+                        });
+                    };
+                    buttonsDiv.appendChild(loadBtn);
+
+                    if (isUserSection) {
+                        const exportBtn = document.createElement('button');
+                        exportBtn.textContent = 'Export';
+                        exportBtn.style.cssText = `background-color: #0277bd; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;`;
+                        exportBtn.onclick = () => exportLayout(layout.id);
+                        buttonsDiv.appendChild(exportBtn);
+
+                        const deleteBtn = document.createElement('button');
+                        deleteBtn.textContent = 'Delete';
+                        deleteBtn.style.cssText = `background-color: #c62828; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;`;
+                        deleteBtn.onclick = () => {
+                            showCustomConfirm(`Are you sure you want to delete the layout "${layout.name}"?`, () => {
+                                deleteUserLayout(layout.id);
+                                renderLayoutLists();
+                            });
+                        };
+                        buttonsDiv.appendChild(deleteBtn);
+                    }
+
+                    item.appendChild(nameSpan);
+                    item.appendChild(buttonsDiv);
+                    listContainer.appendChild(item);
+                });
+                section.appendChild(listContainer);
+                return section;
+            }
+
             saveButton.onclick = () => {
-                const layoutName = saveInput.value.trim();
-                if (!layoutName) {
-                    showCustomModal('Please enter a layout name');
+                const name = layoutNameInput.value.trim();
+                if (!name) {
+                    showCustomModal("Please enter a name for the layout.");
                     return;
                 }
-                
-                if (userLayouts.some(layout => layout.name === layoutName)) {
-                    showCustomModal('A layout with that name already exists');
-                    return;
-                }
-                
-                saveCurrentAsUserLayout(layoutName);
-                saveInput.value = '';
-                renderUserLayouts();
+                saveCurrentLayoutAsUserLayout(name);
+                layoutNameInput.value = '';
+                renderLayoutLists();
             };
             
-            // Allow saving with Enter key
-            saveInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    saveButton.click();
-                }
-            });
-            
-            modalContent.appendChild(title);
-            modalContent.appendChild(saveSection);
-            modalContent.appendChild(predefinedSection);
-            modalContent.appendChild(userSection);
-            modalContent.appendChild(closeButton);
-            modalOverlay.appendChild(modalContent);
-            document.body.appendChild(modalOverlay);
-            
-            saveInput.focus();
+            importButton.onclick = importLayout;
+
+            renderLayoutLists();
         }
 
-        function saveCurrentAsUserLayout(name) {
-            const activeCanvas = getActiveWidgetCanvas();
-            if (!activeCanvas) {
-                showCustomModal('No active tab to save');
+        function saveCurrentLayoutAsUserLayout(name) {
+            const activeTabObject = tabs.find(t => t.id === activeTabId);
+            if (!activeTabObject) {
+                showCustomModal("Could not find active tab data to save.");
                 return;
             }
+            saveLayout(); // First, ensure the in-memory layout is up-to-date
             
-            const widgets = Array.from(activeCanvas.querySelectorAll('.widget')).map(widget => {
-                return {
-                    name: widget.dataset.widgetName,
-                    htmlFile: widget.dataset.htmlFile,
-                    options: {
-                        left: widget.style.left,
-                        top: widget.style.top,
-                        width: widget.style.width,
-                        height: widget.style.height,
-                        zIndex: parseInt(widget.style.zIndex || 0),
-                        locked: widget.dataset.locked === 'true'
-                    }
-                };
-            });
-            
-            const layout = {
+            const layouts = getSavedLayouts();
+            const newLayout = {
                 id: `user-${Date.now()}`,
                 name: name,
-                widgets: widgets
+                widgets: JSON.parse(JSON.stringify(activeTabObject.widgets.map(w => ({name: w.name, htmlFile: w.htmlFile, options: {left: w.left, top: w.top, width: w.width, height: w.height, zIndex: w.zIndex, locked: w.locked}}))))
             };
-            
-            userLayouts.push(layout);
-            saveUserLayouts();
+            layouts.push(newLayout);
+            saveUserLayouts(layouts);
             showCustomModal(`Layout "${name}" saved successfully!`);
         }
 
-        function loadPredefinedLayout(layout) {
-            const activeCanvas = getActiveWidgetCanvas();
+        function loadLayoutData(layoutData) {
+            if (!layoutData) return;
             const activeTabObject = tabs.find(t => t.id === activeTabId);
-            
-            if (!activeCanvas || !activeTabObject) {
-                showCustomModal('No active tab to load layout into');
+            const activeCanvas = getActiveWidgetCanvas();
+            if (!activeTabObject || !activeCanvas) {
+                showCustomModal("No active tab to load the layout into.");
                 return;
             }
-            
-            // Clear current widgets
             activeCanvas.innerHTML = '';
-            
-            // Reset counters
-            let maxZ = 0;
-            let maxCounter = 0;
-            
-            // Create widgets from layout
-            layout.widgets.forEach((widgetData, index) => {
-                const options = { ...widgetData.options };
-                if (!options.id) {
-                    options.id = `widget-${activeTabId}-${index + 1}`;
-                }
-                const zIndex = options.zIndex || index + 1;
-                if (zIndex > maxZ) maxZ = zIndex;
-                
-                const counterPart = parseInt(options.id.split('-').pop() || 0);
-                if (counterPart > maxCounter) maxCounter = counterPart;
-                
-                createWidget(widgetData.name, widgetData.htmlFile, options, false, activeCanvas);
+            activeTabObject.widgets = [];
+            activeTabObject.highestZ = 0;
+            activeTabObject.widgetCounter = 0;
+            currentHighestZ = 0;
+            currentWidgetCounter = 0;
+            layoutData.widgets.forEach(widgetInfo => {
+                 createWidget(widgetInfo.name, widgetInfo.htmlFile, widgetInfo.options, true, activeCanvas);
             });
-            
-            // Update counters for the tab
-            activeTabObject.highestZ = maxZ;
-            activeTabObject.widgetCounter = maxCounter;
-            currentHighestZ = maxZ;
-            currentWidgetCounter = maxCounter;
-            
             saveLayout();
             updateScrollability();
         }
 
-        function loadUserLayout(layout) {
-            loadPredefinedLayout(layout); // Same logic applies
+        function deleteUserLayout(layoutId) {
+            let layouts = getSavedLayouts();
+            layouts = layouts.filter(l => l.id !== layoutId);
+            saveUserLayouts(layouts);
         }
 
-        layoutManagerButton.addEventListener('click', showLayoutManager);
-
-        // --- WIDGET BUTTONS GENERATION ---
-        function generateWidgetButtons() {
-            widgetButtonsGroup.innerHTML = '';
-            
-            widgetCategories.forEach(category => {
-                const categoryGroup = document.createElement('div');
-                categoryGroup.className = 'category-group';
-                
-                const categoryButton = document.createElement('button');
-                categoryButton.className = 'custom-button category-button';
-                categoryButton.textContent = category.name;
-                categoryButton.title = `${category.name} Widgets`;
-                
-                const dropdown = document.createElement('div');
-                dropdown.className = 'category-dropdown hidden';
-                
-                category.widgets.forEach(widget => {
-                    const item = document.createElement('div');
-                    item.className = 'category-dropdown-item';
-                    item.innerHTML = `<strong>${widget.ticker}</strong> - ${widget.description}`;
-                    item.onclick = () => {
-                        createWidget(widget.description, widget.htmlFile);
-                        dropdown.classList.add('hidden');
-                    };
-                    dropdown.appendChild(item);
-                });
-                
-                categoryButton.onclick = (e) => {
-                    e.stopPropagation();
-                    // Close all other dropdowns
-                    document.querySelectorAll('.category-dropdown').forEach(d => {
-                        if (d !== dropdown) d.classList.add('hidden');
-                    });
-                    dropdown.classList.toggle('hidden');
-                };
-                
-                categoryGroup.appendChild(categoryButton);
-                categoryGroup.appendChild(dropdown);
-                widgetButtonsGroup.appendChild(categoryGroup);
-            });
-            
-            // Close dropdowns when clicking outside
-            document.addEventListener('click', (e) => {
-                if (!e.target.closest('.category-group')) {
-                    document.querySelectorAll('.category-dropdown').forEach(d => d.classList.add('hidden'));
-                }
-            });
-        }
-
-        // --- SEARCH FUNCTIONALITY ---
-        function initializeSearch() {
-            // Populate widget data list for search
-            widgetCategories.forEach(category => {
-                category.widgets.forEach(widget => {
-                    widgetDataList.push({
-                        ticker: widget.ticker.toLowerCase(),
-                        description: widget.description,
-                        htmlFile: widget.htmlFile,
-                        category: category.name
-                    });
-                });
-            });
-            
-            let searchTimeout;
-            
-            searchWidgetIconButton.addEventListener('click', toggleSearchInput);
-            
-            searchWidgetInput.addEventListener('input', (e) => {
-                clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => {
-                    const query = e.target.value.toLowerCase().trim();
-                    if (query) {
-                        showSearchSuggestions(query);
-                    } else {
-                        hideSearchSuggestions();
-                    }
-                }, 150);
-            });
-            
-            searchWidgetInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
-                    hideSearchInput();
-                } else if (e.key === 'Enter') {
-                    const query = e.target.value.toLowerCase().trim();
-                    if (query) {
-                        const exactMatch = widgetDataList.find(w => w.ticker === query);
-                        if (exactMatch) {
-                            createWidget(exactMatch.description, exactMatch.htmlFile);
-                            hideSearchInput();
-                        }
-                    }
-                }
-            });
-            
-            searchWidgetInput.addEventListener('blur', (e) => {
-                // Delay hiding to allow suggestion clicks
-                setTimeout(() => {
-                    if (!searchSuggestionsList.contains(document.activeElement)) {
-                        hideSearchSuggestions();
-                    }
-                }, 150);
-            });
-            
-            // Global keyboard shortcut (backtick key)
-            document.addEventListener('keydown', (e) => {
-                if (e.key === '`' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                    const activeElement = document.activeElement;
-                    if (activeElement.tagName !== 'INPUT' && activeElement.tagName !== 'TEXTAREA' && !isRenamingTab) {
-                        e.preventDefault();
-                        toggleSearchInput();
-                    }
-                }
-            });
-        }
-        
-        function toggleSearchInput() {
-            if (searchWidgetInput.classList.contains('hidden')) {
-                showSearchInput();
-            } else {
-                hideSearchInput();
-            }
-        }
-        
-        function showSearchInput() {
-            searchWidgetInput.classList.remove('hidden');
-            searchWidgetInput.focus();
-            searchWidgetInput.select();
-        }
-        
-        function hideSearchInput() {
-            searchWidgetInput.classList.add('hidden');
-            searchWidgetInput.value = '';
-            hideSearchSuggestions();
-        }
-        
-        function showSearchSuggestions(query) {
-            const filteredWidgets = widgetDataList.filter(widget => 
-                widget.ticker.includes(query) || 
-                widget.description.toLowerCase().includes(query)
-            ).slice(0, 8); // Limit results
-            
-            if (filteredWidgets.length === 0) {
-                hideSearchSuggestions();
+        function exportLayout(layoutId) {
+            const layouts = getSavedLayouts();
+            const layoutToExp = layouts.find(l => l.id === layoutId);
+            if (!layoutToExp) {
+                showCustomModal("Could not find layout to export.");
                 return;
             }
-            
-            searchSuggestionsList.innerHTML = '';
-            
-            filteredWidgets.forEach(widget => {
-                const item = document.createElement('div');
-                item.className = 'suggestion-item cursor-pointer';
-                item.innerHTML = `<strong>${widget.ticker.toUpperCase()}</strong> - ${widget.description}`;
-                
-                item.addEventListener('click', () => {
-                    createWidget(widget.description, widget.htmlFile);
-                    hideSearchInput();
-                });
-                
-                item.addEventListener('mousedown', (e) => {
-                    e.preventDefault(); // Prevent blur event on input
-                });
-                
-                searchSuggestionsList.appendChild(item);
-            });
-            
-            searchSuggestionsList.classList.remove('hidden');
-        }
-        
-        function hideSearchSuggestions() {
-            searchSuggestionsList.classList.add('hidden');
-            searchSuggestionsList.innerHTML = '';
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(layoutToExp, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            const safeName = layoutToExp.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            downloadAnchorNode.setAttribute("download", `${safeName}_layout.json`);
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
         }
 
-        // --- INITIALIZATION ---
-        function init() {
-            loadUserLayouts();
-            generateWidgetButtons();
-            initializeSearch();
-            loadLayout();
-            loadWidgetsIntoActiveTab();
-            
-            // Handle window resize
-            window.addEventListener('resize', updateScrollability);
+        function importLayout() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+            input.onchange = e => { 
+                const file = e.target.files[0]; 
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = readerEvent => {
+                    try {
+                        const content = readerEvent.target.result;
+                        const newLayout = JSON.parse(content);
+                        // Basic validation
+                        if (typeof newLayout.name !== 'string' || !Array.isArray(newLayout.widgets)) {
+                            throw new Error("Invalid layout file format.");
+                        }
+                        const layouts = getSavedLayouts();
+                        // Assign a new unique ID to prevent conflicts
+                        newLayout.id = `user-${Date.now()}`;
+                        layouts.push(newLayout);
+                        saveUserLayouts(layouts);
+                        showCustomModal(`Layout "${newLayout.name}" imported successfully.`, () => {
+                            // Re-open or re-render the modal list
+                            const modal = document.getElementById('layoutManagerModal');
+                            if(modal) document.body.removeChild(modal);
+                            showLayoutManagerModal();
+                        });
+                    } catch (err) {
+                        console.error("Error parsing imported layout file:", err);
+                        showCustomModal("Error: Could not import file. It may be corrupted or in the wrong format.");
+                    }
+                }
+                reader.readAsText(file);
+            }
+            input.click();
         }
 
-        // Start the application
-        init();
+        layoutManagerButton.addEventListener('click', showLayoutManagerModal);
+
+
+        // Initialize
+        populateWidgetDataList();
+        renderTopButtons();
+        loadLayout(); // This will now create all tab canvases and their widgets
+
+        window.addEventListener('load', () => {
+            updateScrollability(); // Initial check for the active tab
+        });
+        window.addEventListener('resize', updateScrollability);
+
     </script>
 </body>
 </html>
